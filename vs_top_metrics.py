@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Created on August 3, 2018
+# Created on August 24, 2018
 # @author: aman@avinetworks.com
 #
 # AVI-SDK based Script to get a list of VIPs using highest Bandwidth or no of Connections
@@ -9,9 +9,11 @@
 # Real Time Metrics in AVI needs to be enabled for the VIPs
 #
 # Usage:-
-#  python vs_metrics_top.py -c <controller-ip> -u <user-name> -p <password> -t <tenant> -a <api-version> -l <limits> -s <step> -pm <parameter>
-#  python vs_metrics_top.py -c '10.140.196.5' -u 'admin' -p 'Admin@123' -t 'admin' -a '17.2.11' -l '10' -s '300' -pm 'bw'
-#  python vs_metrics_top.py -c '10.140.196.5' -u 'admin' -p 'Admin@123' -t 'admin' -a '17.2.11' -l '10' -s '300' -pm 'conn'
+#  python vs_metrics_top.py -c <controller-ip> -u <user-name> -to <token> -t <tenant> -a <api-version> -l <limits> -s <step> -pm <parameter>
+#  python vs_metrics_top.py -c '10.10.30.63' -u 'admin' -to '777e5...fb153' -t 'admin' -a '17.2.10' -l '10' -s '300' -pm 'bw'
+#  python vs_metrics_top.py -c '10.10.30.63' -u 'admin' -to '777e5...fb153' -t 'admin' -a '17.2.10' -l '10' -s '300' -pm 'conn'
+#
+# You can generate a token in AVI Vantage using 'Generate Token' option.
 #
 # step denotes the duration granularity of the metrics aggregation.
 # step=300 means the average, sum, max etc are computed using metrics in 5min duration window.
@@ -72,7 +74,7 @@ def top_vips(param, m_id):
 def main():
     parser = argparse.ArgumentParser(description="AVISDK based Script to get a list of VIPs using highest Bandwidth or no of Connections")
     parser.add_argument("-u", "--username", required=False, help="Login username")
-    parser.add_argument("-p", "--password", required=True, help="Login password")
+    parser.add_argument("-to", "--token", required=True, help="Token for Authentication")
     parser.add_argument("-c", "--controller", required=True, help="Controller IP address")
     parser.add_argument("-t", "--tenant", required=False, help="Tenant Name")
     parser.add_argument("-a", "--api_version", required=True, help="API Version")
@@ -85,7 +87,7 @@ def main():
     user = str([args.username if args.username else "admin"][0])
     tenant = str([args.tenant if args.tenant else "admin"][0])
     api_version = str([args.api_version if args.api_version else "17.2.11"][0])
-    password = args.password
+    token = args.token
     controller = args.controller
     limits = int(args.limits)
     step = int(args.step)
@@ -100,19 +102,32 @@ def main():
     # Get Api Session
     urllib3.disable_warnings()
     global api
-    api = ApiSession.get_session(controller, user, password, tenant=tenant, api_version=api_version)
+    api = ApiSession.get_session(controller, user, token=token, tenant=tenant, api_version=api_version)
 
+    page = 1
     vs_list = {}
-    resp = api.get('virtualservice?page_size=3000')
-    for vs in resp.json()['results']:
-        vs_list.update({vs['name']:vs['uuid']})
+
+    print 'Getting VS info..',
+    while True:
+        resp = api.get('virtualservice?page_size=1000&page=' + str(page))
+        for vs in resp.json()['results']:
+            vs_list.update({vs['name']:vs['uuid']})
+        if 'next' in resp.json():
+            page = page + 1
+        else:
+            break
+    print 'done'
 
     dic = {}
+    print 'Getting Metrics info',
     for k,v in vs_list.items():
         name = k.encode('ascii','ignore')
         uuid = v.encode('ascii','ignore')
         avg_value = metrics(uuid, m_id, tenant, step, limits)
         dic.update({name:avg_value})
+        sys.stdout.write('.')
+        sys.stdout.flush()
+    print 'done\n'
 
     print '\nTotal VIPs in Tenant:', tenant, ':', len(vs_list)
     print 'Average Values over past', (step * limits)/(60*60), 'hours (', (step * limits)/60, 'min) Collected Samples:', limits, 'each after:', step, 'sec'
